@@ -1,0 +1,171 @@
+---
+title: "World Bank Data Download and Processing"
+author: "Kenith Chan"
+date: '2025-04-09'
+---
+
+## Introduction
+
+This document outlines the process for downloading and formatting World Bank data using the WDI package in R. The World Development Indicators (WDI) is the World Bank's premier compilation of cross-country data on development, containing over 1,600 indicators for approximately 217 economies.
+
+## Required Packages
+
+First, let's install and load the necessary packages:
+
+```{r packages}
+# Install packages if not already installed
+if (!require("WDI")) install.packages("WDI")
+if (!require("tidyverse")) install.packages("tidyverse")
+if (!require("countrycode")) install.packages("countrycode")
+
+# Load packages
+library(WDI)
+library(tidyverse)
+library(countrycode)
+```
+
+## Exploring Available Indicators
+
+The WDI package provides a function to search for available indicators:
+
+```{r explore_indicators}
+# Search for GDP-related indicators
+gdp_indicators <- WDIsearch("gdp")
+head(gdp_indicators, 10)
+
+# Search for population-related indicators
+pop_indicators <- WDIsearch("population")
+head(pop_indicators, 10)
+```
+
+## Downloading Key World Bank Indicators
+
+Let's download several important development indicators:
+
+```{r download_indicators}
+# Define the indicators we want to download
+indicators <- c(
+  "NY.GDP.PCAP.PP.KD",   # GDP per capita, PPP (constant 2017 international $)
+  "NY.GDP.MKTP.KD.ZG",   # GDP growth (annual %)
+  "SP.POP.TOTL",         # Total population
+  "SP.DYN.LE00.IN",      # Life expectancy at birth
+  "SI.POV.GINI",         # GINI index
+  "SE.ADT.LITR.ZS",      # Adult literacy rate
+  "SL.UEM.TOTL.ZS"       # Unemployment rate
+)
+
+# Define the time period (last 30 years)
+start_year <- 1995
+end_year <- 2024
+
+# Download the data
+wb_data <- WDI(
+  indicator = indicators,
+  country = "all",
+  start = start_year,
+  end = end_year,
+  extra = TRUE # Include additional country information
+)
+
+# Check the structure of the downloaded data
+glimpse(wb_data)
+```
+
+## Data Cleaning and Preparation
+
+Now let's clean and prepare the data for analysis:
+
+```{r clean_data}
+# Rename the columns to more descriptive names
+wb_data_clean <- wb_data %>%
+  rename(
+    gdp_per_capita = NY.GDP.PCAP.PP.KD,
+    gdp_growth = NY.GDP.MKTP.KD.ZG,
+    population = SP.POP.TOTL,
+    life_expectancy = SP.DYN.LE00.IN,
+    gini = SI.POV.GINI,
+    literacy_rate = SE.ADT.LITR.ZS,
+    unemployment_rate = SL.UEM.TOTL.ZS
+  )
+
+# Filter out aggregates and keep only countries
+wb_data_clean <- wb_data_clean %>%
+  filter(region != "Aggregates")
+
+# Check for missing values in key variables
+missing_summary <- wb_data_clean %>%
+  summarise(across(
+    .cols = c(gdp_per_capita, gdp_growth, population, life_expectancy, 
+              gini, literacy_rate, unemployment_rate),
+    .fns = ~sum(is.na(.)),
+    .names = "missing_{.col}"
+  ))
+
+print(missing_summary)
+```
+
+## Data Analysis Examples
+
+Let's perform some basic analyses with the downloaded data:
+
+```{r analysis}
+# Top 10 countries by GDP per capita in the most recent year
+top_gdp_countries <- wb_data_clean %>%
+  filter(!is.na(gdp_per_capita)) %>%
+  filter(year == max(year, na.rm = TRUE)) %>%
+  select(country, gdp_per_capita) %>%
+  arrange(desc(gdp_per_capita)) %>%
+  head(10)
+
+# Top 10 most populous countries
+top_pop_countries <- wb_data_clean %>%
+  filter(!is.na(population)) %>%
+  filter(year == max(year, na.rm = TRUE)) %>%
+  select(country, population) %>%
+  arrange(desc(population)) %>%
+  head(10)
+
+# Display results
+print(top_gdp_countries)
+print(top_pop_countries)
+```
+
+## Saving the Data
+
+Finally, let's save the cleaned data to a file for future use:
+
+```{r save_data}
+# Check and adjust working directory if needed
+current_dir <- basename(getwd())
+
+if (current_dir == "world_bank") {
+  message("Already in world_bank directory")
+} else if (current_dir == "scripts") {
+  setwd("..")
+  message("Changed working directory to world_bank")
+} else if (current_dir == "pwb-database") {
+  setwd("world_bank")
+  message("Changed working directory to world_bank")
+} else {
+  stop("Please run this script from within the world_bank directory or its scripts subdirectory.")
+}
+
+if (!dir.exists("data/processed")) {
+  dir.create("data")
+  dir.create("data/processed")
+}
+
+# Save the cleaned data
+saveRDS(wb_data_clean, "data/processed/world_bank_indicators.rds")
+write_csv(wb_data_clean, "data/processed/world_bank_indicators.csv")
+```
+
+## Conclusion
+
+This document demonstrates how to download, clean, and analyze World Bank data using the WDI package in R. The processed data is saved in CSV and RDS formats for further analysis. The indicators selected provide a comprehensive overview of economic, social, and environmental development across countries and over time.
+
+## Session Info
+
+```{r session_info}
+sessionInfo()
+```

@@ -47,3 +47,8 @@ po/*~
 
 # RStudio Connect folder
 rsconnect/
+
+# Raw and processed data folders for any dataset
+*/data/raw/
+*/data/processed/
+gallup_world_poll/scripts/generated_scripts/

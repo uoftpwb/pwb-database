@@ -1,0 +1,338 @@
+---
+title: "Gallup World Poll Cleaning Script Generator"
+author: "Kenith Chan"
+date: "2025-04-02"
+output: html_document
+---
+
+## Gallup World Poll Cleaning Script Generator
+
+This R Markdown file generates customized data cleaning scripts for Gallup World Poll data based on user specifications.
+
+## Description
+
+This generator creates R scripts for cleaning Gallup World Poll data by:
+- Extracting specified variables from raw datasets
+- Converting non-substantive responses to NA values
+- Recoding binary variables (1=Yes, 2=No) to (1=Yes, 0=No)
+- Calculating affect indices (optional)
+- Saving the cleaned dataset with appropriate naming
+
+This uses metadata previously extracted using `0_GallupWorldPoll_attributes_extraction.rmd`.
+
+## Template Files
+
+Located in the templates directory:
+- `cleaning_script_template.R`: Main template
+- `na_conversion_template.R`: NA value conversion
+- `binary_conversion_template.R`: Binary response conversion
+- `affects_calculation_template.R`: Affects calculation
+
+## Required Folder Structure
+
+```
+gallup_world_poll/
+  ├── data/
+  │   ├── metadata/        # Contains variable metadata
+  │   │   └── Gallup_World_Poll_XXXXXX_Attributes.rds
+  └── scripts/
+      ├── 1_GallupWorldPoll_cleaningScript_generation.rmd  # This script
+      ├── generated_scripts/  # Will contain generated cleaning scripts
+      └── templates/          # Contains template files for script generation
+          ├── affects_calculation_template.R
+          ├── binary_conversion_template.R
+          ├── cleaning_script_template.R
+          └── na_conversion_template.R
+```
+
+
+## Using Generated Scripts
+
+1. **Copy** the generated script to your project
+2. **Place** your raw Gallup data file in your data directory
+3. **Run** the cleaning script in your environment
+
+## Troubleshooting
+
+- **Missing packages**: Install required packages
+- **Template files missing**: Check templates directory
+- **Metadata file missing**: Verify metadata path
+- **Project name**: Set a project name in parameters
+
+## Quick Start Guide
+
+**Only modify the "User Parameters" section below and run the entire script.**
+
+1. **Install Required Packages** (if needed):
+   ```r
+   install.packages(c("dplyr", "glue", "rio"))
+   ```
+
+2. **Set Parameters** in the "User Parameters" section:
+   - `projectName`: Your project identifier (required)
+   - `author`: Your name
+   - `rawFileName`: Name of your Gallup data file
+   - `rawReleaseDate`: Release date
+   - `variables`: Variables to include
+   - `needAffects`: TRUE for affect calculations
+
+3. **Run All Chunks** (Click "Run All" or press Ctrl+Alt+R)
+
+4. The generated script will be saved to the output directory
+
+```{r load_libraries, message=FALSE, warning=FALSE}
+# Check and install required packages if needed
+required_packages <- c("dplyr", "glue", "rio")
+missing_packages <- required_packages[!required_packages %in% installed.packages()[,"Package"]]
+
+if(length(missing_packages) > 0) {
+  stop(paste("Please install the following packages before running this script:", 
+             paste(missing_packages, collapse=", "), 
+             "\nUse: install.packages(c('", paste(missing_packages, collapse="', '"), "'))", sep=""))
+}
+
+# Load necessary libraries
+library(dplyr)
+library(glue)
+library(rio)
+```
+
+### User Parameters
+
+```{r user_parameters}
+# Parameters to be specified by the user
+params <- list(
+  projectName = "TEST",  # Project name (will be used in output filenames) - REQUIRED
+  author = "Kenith Chan", # Author name for the generated script
+  rawFileName = "The_Gallup_022125.dat",  # Name of raw data file
+  rawReleaseDate = "March 11, 2025",  # Release date of the raw data file
+  metadata_path = "data/metadata/Gallup_World_Poll_022125_Attributes.rds", # Path to metadata file
+  needAffects = TRUE,  # Whether to include affect calculations
+  variables = c(  # Variables to include in the subset
+    "WGT", "COUNTRYNEW", "COUNTRY_ISO3",
+    "YEAR_CALENDAR", "WP4", "YEAR_WAVE",
+    "EMP_2010", "INCOME_5", "WP1219", "WP1220",
+    "WP1223", "WP3117", "WP16", "WP18",
+    "WP63", "WP67", "WP69", "WP70", "WP71", "WP74"
+  ),
+
+  # You don't need to change the following parameters
+  output_dir = "scripts/generated_scripts", # Output directory for generated script
+  templates_dir = "scripts/templates", # Directory containing template files
+  todayDate = Sys.Date(),  # Current date
+  raw_data_dir = "data/raw" # Directory containing raw data files in your repository
+)
+
+# Validate parameters
+if(params$projectName == "") {
+  stop("Please provide a project name in the params list.")
+}
+
+# Display the parameters for confirmation
+print("Script will be generated with the following parameters:")
+print(params)
+```
+
+
+# Important: You typically don't need to modify anything below this line
+# ----------------------------------------------------------------
+
+
+### Load Template Files
+```{r load_templates, error=TRUE}
+# Check and adjust working directory if needed
+current_dir <- basename(getwd())
+
+if (current_dir == "gallup_world_poll") {
+  message("Already in gallup_world_poll directory")
+} else if (current_dir == "scripts") {
+  setwd("..")
+  message("Changed working directory to gallup_world_poll")
+} else if (current_dir == "pwb-database") {
+  setwd("gallup_world_poll")
+  message("Changed working directory to gallup_world_poll")
+} else {
+  stop("Please run this script from within the gallup_world_poll directory or its scripts subdirectory.")
+}
+
+# Function to read template files with error handling
+read_template <- function(template_path) {
+  if (!file.exists(template_path)) {
+    stop(paste("Template file not found:", template_path, 
+               "\nPlease ensure all template files exist in:", params$templates_dir))
+  }
+  readLines(template_path, warn = FALSE) |> 
+    paste(collapse = "\n")
+}
+
+# Define template paths
+main_template_path <- file.path(params$templates_dir, "cleaning_script_template.R")
+na_conversion_template_path <- file.path(params$templates_dir, "na_conversion_template.R")
+binary_conversion_template_path <- file.path(params$templates_dir, "binary_conversion_template.R")
+affects_template_path <- file.path(params$templates_dir, "affects_calculation_template.R")
+
+# Try to read templates with detailed error messages
+tryCatch({
+  main_template <- read_template(main_template_path)
+  na_conversion_template <- read_template(na_conversion_template_path)
+  binary_conversion_template <- read_template(binary_conversion_template_path)
+  affects_template <- read_template(affects_template_path)
+  
+  message("All template files loaded successfully.")
+}, error = function(e) {
+  stop(paste("Error loading templates:", e$message,
+             "\nPlease check that all required template files exist."))
+})
+```
+
+### Process Metadata for NA Values and Binary Response Identification
+
+```{r process_metadata, error=TRUE}
+# Load the Gallup reference data with better error handling
+tryCatch({
+  if(file.exists(params$metadata_path)) {
+    gallupRef <- readRDS(params$metadata_path)
+    message("Metadata loaded successfully.")
+  } else {
+    stop(paste("Metadata file not found at:", params$metadata_path, 
+               "\nPlease run the attributes extraction script first or check the path."))
+  }
+  
+  # Function to generate code for converting specific values to NA
+  toNACode <- function(var){
+    if(!var %in% gallupRef$QTAG) {
+      warning(paste("Variable", var, "not found in metadata. NA conversion will be skipped for this variable."))
+      return(NULL)
+    }
+    
+    # Extract the NA values for the variable from NonSubResponses
+    var_row <- gallupRef[gallupRef$QTAG == var, ]
+    nonSubResponses <- var_row$NonSubResponses[[1]]
+    
+    if(length(nonSubResponses) > 0) {
+      na_values <- unlist(nonSubResponses)
+      valuesToNA <- paste(na.omit(na_values), collapse = ", ")
+      
+      if(nchar(valuesToNA) > 0){
+        return(glue("{var} = ifelse({var} %in% c({valuesToNA}), NA, {var})"))
+      }
+    }
+    return(NULL)
+  }
+  
+  # Generate NA conversion code for all variables
+  toNACode_list <- lapply(params$variables, toNACode)
+  toNACode_filtered <- toNACode_list[!sapply(toNACode_list, is.null)]
+  na_conversion_list <- paste(toNACode_filtered, collapse = ",\n    ")
+  
+  # Check if binary response variables exist and generate code
+  # Use the BinaryResponses column from the actual RDS structure
+  binaryVars <- gallupRef$QTAG[gallupRef$BinaryResponses == TRUE]
+  binaryVars <- intersect(binaryVars, params$variables)
+  
+  binary_conversion_list <- ""
+  if(length(binaryVars) > 0){
+    binaryQCode <- function(var){
+      return(glue("{var} = ifelse({var} == 2, 0, {var})"))
+    }
+    binary_conversion_list <- lapply(binaryVars, binaryQCode) %>% 
+      paste(collapse = ",\n    ")
+  }
+  
+}, error = function(e) {
+  stop(paste("Error processing metadata:", e$message))
+})
+```
+
+### Generate Complete Cleaning Script
+
+```{r generate_complete_script, error=TRUE}
+tryCatch({
+  # Format the variables list for the template with ShortText as comments
+  variables_list <- sapply(params$variables, function(var) {
+    # Find ShortText for the variable
+    short_text <- ""
+    if(var %in% gallupRef$QTAG) {
+      short_text <- gallupRef$ShortText[gallupRef$QTAG == var]
+      if(!is.na(short_text) && nchar(short_text) > 0) {
+        return(sprintf('"%s" # %s', var, short_text))
+      }
+    }
+    return(sprintf('"%s"', var)) # Return without comment if ShortText not found
+  }) %>% paste(collapse = ',\n  ')
+  
+  # Format date for filenames
+  date_format <- format(params$todayDate, "%y%m%d")
+  
+  # Apply NA conversion template if needed
+  na_conversion_code <- ""
+  if(length(toNACode_filtered) > 0) {
+    na_conversion_code <- glue(na_conversion_template, .open = "{{", .close = "}}", 
+                             NA_CONVERSION_LIST = na_conversion_list)
+  }
+  
+  # Apply binary conversion template if needed
+  binary_conversion_code <- ""
+  if(length(binaryVars) > 0) {
+    binary_conversion_code <- glue(binary_conversion_template, .open = "{{", .close = "}}", 
+                                 BINARY_CONVERSION_LIST = binary_conversion_list)
+  }
+  
+  # Apply affects calculation template if needed
+  affects_calculation <- ""
+  if(params$needAffects) {
+    affects_calculation <- affects_template
+  }
+  
+  # Apply all replacements to the main template
+  cleaningCodeContent <- glue(main_template, 
+                            .open = "{{", 
+                            .close = "}}",
+                            AUTHOR = params$author,
+                            TODAY_DATE = params$todayDate,
+                            RAW_FILENAME = params$rawFileName,
+                            RAW_RELEASE_DATE = params$rawReleaseDate,
+                            RAW_DATA_DIR = params$raw_data_dir,
+                            VARIABLES_LIST = variables_list,
+                            PROJECT_NAME = params$projectName,
+                            DATE_FORMAT = date_format,
+                            NA_CONVERSION_CODE = na_conversion_code,
+                            BINARY_CONVERSION_CODE = binary_conversion_code,
+                            AFFECTS_CALCULATION = affects_calculation,
+                            SCRIPT_NAME = glue("GWP_cleaningCode_{params$projectName}_{date_format}.Rmd")
+                            )
+  
+  # Display the generated script
+  cat("Generated Script Preview (truncated):\n\n")
+  cat(substr(cleaningCodeContent, 1, 1000), "...\n")
+
+}, error = function(e) {
+  stop(paste("Error generating script:", e$message))
+})
+```
+
+### Save Generated Script
+
+```{r save_script, error=TRUE}
+tryCatch({
+  # Create output directory if it doesn't exist
+  if (!dir.exists(params$output_dir)) {
+    dir.create(params$output_dir, recursive = TRUE)
+    message(paste("Created output directory:", params$output_dir))
+  }
+  
+  # Generate filename
+  output_filename <- glue("GWP_cleaningCode_{params$projectName}_{date_format}.Rmd")
+  output_path <- file.path(params$output_dir, output_filename)
+  
+  # Write the script to file
+  writeLines(cleaningCodeContent, output_path)
+  
+  # Confirmation message
+  message(glue("✓ SUCCESS: Script saved to: {output_path}"))
+  
+}, error = function(e) {
+  stop(paste("Error saving script:", e$message))
+})
+```
+

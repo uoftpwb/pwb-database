@@ -1,0 +1,270 @@
+---
+title: "Gallup World Poll Attributes Extraction"
+author: "Kenith Chan"
+date: "2025-04-02"
+output: html_document
+---
+
+# Introduction
+
+This document extracts and processes metadata attributes from the Gallup World Poll dataset. The Gallup World Poll contains survey data from respondents across multiple countries and years, covering various well-being and other socioeconomic measures. 
+
+The goal of this script is to:
+1. Extract all variable attributes (labels, response options, etc.) from the dataset
+2. Identify non-substantive responses (Don't Know, Refused, Not Applicable)
+3. Identify binary response questions
+4. Combine variable metadata with full question text
+5. Save the organized metadata for future use
+
+This metadata will facilitate easier analysis and interpretation of the Gallup World Poll variables.
+
+## Setup
+
+First, we load the necessary libraries for data manipulation.
+
+```{r}
+# Load necessary libraries
+library(dplyr)
+library(tidyr)
+```
+
+## Data Loading
+
+We load the preprocessed Gallup World Poll dataset from an RDS file. The RDS file is converted from the original SAV file because it preserves attributes (like labels and value definitions), is smaller in size, and loads faster in R compared to the SAV format.
+
+```{r}
+# Load the preprocessed Gallup World Poll dataset from RDS format
+gallupRDS <- readRDS("gallup_world_poll/data/processed/Gallup_World_Poll_022125.rds")
+```
+
+## Attribute Extraction
+
+We extract all attributes from each variable in the dataset. These attributes contain valuable metadata such as variable labels and response options. The Gallup World Poll data uses labelled variables to preserve the mapping between numeric values (stored in the data) and their textual meanings (stored as attributes).
+
+This step creates a comprehensive catalog of all variables and their metadata, which will serve as the foundation for our attribute database.
+
+```{r}
+# First pass: collect all unique attribute names across all variables
+all_attr_names <- c()
+for (col_name in names(gallupRDS)) {
+  col_attrs <- attributes(gallupRDS[[col_name]])
+  all_attr_names <- unique(c(all_attr_names, names(col_attrs)))
+}
+
+# Remove standard attributes we're already handling separately (label, labels, class)
+extra_attr_names <- setdiff(all_attr_names, c("label", "labels", "class"))
+
+# Create an empty tibble with initial columns for variable name, label, and response options
+column_specs <- list(
+  QTAG = character(),        # Variable name/identifier
+  ShortText = character(),   # Variable label (short description)
+  Responses = list()         # List to store value labels
+)
+
+# Add columns for any other attributes we found in the dataset
+for (attr_name in extra_attr_names) {
+  column_specs[[attr_name]] <- list()
+}
+
+# Create the tibble with all required columns
+gallup_raw_attr <- tibble::tibble(!!!column_specs)
+
+# Loop through all columns in the dataset to extract their attributes
+for (col_name in names(gallupRDS)) {
+  # Get the column
+  col <- gallupRDS[[col_name]]
+  
+  # Extract all attributes from this column
+  col_attrs <- attributes(col)
+  
+  # Create a list to hold all values for this variable
+  row_values <- list(
+    QTAG = col_name,
+    ShortText = NA_character_,  # Default to NA if no label exists
+    Responses = list(NULL)      # Default to NULL if no value labels exist
+  )
+  
+  # Add the variable label if it exists
+  if (!is.null(col_attrs$label)) {
+    row_values$ShortText <- col_attrs$label
+  }
+  
+  # Add value labels mapping if it exists
+  if (!is.null(col_attrs$labels)) {
+    # Create a named list with values as keys and labels as values
+    responses_list <- as.list(col_attrs$labels)
+    names(responses_list) <- names(col_attrs$labels)
+    
+    # Store the named list directly - it's more natural to work with
+    row_values$Responses <- list(responses_list)
+  }
+  
+  # Add any additional attributes to their respective columns
+  for (attr_name in extra_attr_names) {
+    if (!is.null(col_attrs[[attr_name]])) {
+      row_values[[attr_name]] <- list(col_attrs[[attr_name]])
+    } else {
+      row_values[[attr_name]] <- list(NULL)
+    }
+  }
+  
+  # Add this variable's information as a new row in our tibble
+  gallup_raw_attr <- gallup_raw_attr %>%
+    add_row(!!!row_values)
+}
+```
+
+## Non-substantive responses (DK, Refused, NA)
+
+Survey data often contains special codes for non-substantive responses - answers that don't provide actual information about the question being asked. These typically include:
+
+1. **Don't Know (DK)**: When respondents are unable to answer
+2. **Refused**: When respondents decline to answer
+3. **Not Applicable (NA)**: When the question doesn't apply to the respondent
+
+Identifying these responses is critical because they need special handling during analysis. They are not missing at random but represent specific types of non-response that might have substantive meaning.
+
+We use regular expressions to identify these response types across variables, allowing for variations in how they are labeled in the dataset.
+
+```{r}
+# Create regex patterns to match different types of non-substantive responses
+dk.text <- "(DK\\b|DK\\W)|((Do\\W?not)|dont|don't)\\W?know\\W?$" # Matches various forms of "Don't Know"
+refused.text <- "(refuse|refused|RF\\b|RF\\W)"  # Matches various forms of "Refused"
+na.text <- "(\\(does\\W?not\\W?apply\\))|(Not\\W?Applicable)|(\\bNA\\b)|(\\(N\\W?A\\))|(No\\W?answer)|(No\\W?response)|(Not\\W?Available\\W?$)" # Matches various forms of NA responses
+
+# Identify and extract non-substantive responses for each variable
+gallup_nonsub_attr <- gallup_raw_attr %>%
+    rowwise() %>%
+    mutate(
+        # For "Don't Know" responses: extract both the text label and the corresponding numeric value
+        DK_text = ifelse(any(grepl(dk.text, names(Responses), ignore.case = TRUE)),
+                         names(Responses)[grep(dk.text, names(Responses), ignore.case = TRUE)], 
+                         NA),
+        DK_value = ifelse(any(grepl(dk.text, names(Responses), ignore.case = TRUE)), 
+                          Responses[[grep(dk.text, names(Responses), ignore.case = TRUE)]], 
+                          NA),
+        
+        # For "Refused" responses: extract text label and numeric value
+        Refused_text = ifelse(any(grepl(refused.text, names(Responses), ignore.case = TRUE)), 
+                              names(Responses)[grep(refused.text, names(Responses), ignore.case = TRUE)], 
+                              NA),
+        Refused_value = ifelse(any(grepl(refused.text, names(Responses), ignore.case = TRUE)), 
+                               Responses[[grep(refused.text, names(Responses), ignore.case = TRUE)]], 
+                               NA),
+        
+        # For "Not Applicable" responses: extract text label and numeric value
+        NA_text = ifelse(any(grepl(na.text, names(Responses), ignore.case = TRUE)),
+                                names(Responses)[grep(na.text, names(Responses), ignore.case = TRUE)], 
+                                NA),
+        NA_value = ifelse(any(grepl(na.text, names(Responses), ignore.case = TRUE)),
+                               Responses[[grep(na.text, names(Responses), ignore.case = TRUE)]], 
+                               NA)
+    ) %>%
+    ungroup()
+
+# Print unique instances of each category to verify our pattern matching
+# This helps ensure we've correctly identified non-substantive responses
+print(unique(gallup_nonsub_attr$DK_text[!is.na(gallup_nonsub_attr$DK_text)]))
+print(unique(gallup_nonsub_attr$Refused_text[!is.na(gallup_nonsub_attr$Refused_text)]))
+print(unique(gallup_nonsub_attr$NA_text[!is.na(gallup_nonsub_attr$NA_text)]))
+
+# Check for variables without "Don't Know" responses to verify our pattern matching
+# This helps identify if we've missed any patterns or variables that might have unusual coding
+gallup_nonsub_attr %>%
+  filter(!grepl("REG", QTAG) & is.na(DK_text)) %>%  # Exclude region variables
+  distinct(Responses, .keep_all = TRUE) %>%          # Look at unique response sets
+  mutate(
+    Response_options = sapply(Responses, function(x) paste(names(x), collapse = ", ")),  # Create readable list of responses
+    Response_values = sapply(Responses, function(x) paste(x, collapse = ", "))          # Create readable list of values
+  ) %>%
+  select(QTAG, ShortText, Refused_text, Refused_value, NA_text, NA_value, Response_values, Response_options) %>%
+  View()  # Open in a spreadsheet-like viewer for manual examination
+
+# Similarly check for variables without "Refused" responses
+gallup_nonsub_attr %>%
+  filter(!grepl("REG", QTAG) & is.na(Refused_text)) %>%
+  distinct(Responses, .keep_all = TRUE) %>%
+  mutate(
+    Response_options = sapply(Responses, function(x) paste(names(x), collapse = ", ")),
+    Response_values = sapply(Responses, function(x) paste(x, collapse = ", "))
+  ) %>%
+  select(QTAG, ShortText, DK_text, DK_value, NA_text, NA_value, Response_values, Response_options) %>%
+  View()
+
+# Combine all non-substantive responses into a single named list for easier handling
+# This creates a consolidated record of all non-substantive responses for each variable
+gallup_nonsub_attr <- gallup_nonsub_attr %>%
+    rowwise() %>%
+    mutate(
+        NonSubResponses = list({
+            ns_responses <- list()
+            # Add each type of non-substantive response to our list if it exists
+            if(!is.na(DK_text)) ns_responses[[DK_text]] <- DK_value
+            if(!is.na(Refused_text)) ns_responses[[Refused_text]] <- Refused_value
+            if(!is.na(NA_text)) ns_responses[[NA_text]] <- NA_value
+            ns_responses
+        })
+    ) %>%
+    ungroup() %>%
+    # Remove the individual columns now that we've consolidated them
+    select(-DK_text, -DK_value, -Refused_text, -Refused_value, -NA_text, -NA_value)
+```
+
+## Questions with Binary Responses (1 and 2)
+
+Many survey questions in the Gallup World Poll use a binary response format where "1" typically represents a positive or affirmative response (e.g., "Yes", "Agree") and "2" represents a negative response (e.g., "No", "Disagree").
+
+For analytical purposes, it's often more intuitive to recode these as 1 and 0, where 1 represents the positive response and 0 represents the negative. This facilitates interpretation of means (as proportions) and allows for more intuitive modeling.
+
+In this section, we identify which variables follow this specific binary response pattern to facilitate future recoding.
+
+```{r}
+# Identify variables with binary 1/2 response options (after excluding non-substantive responses)
+gallup_binary_attr <- gallup_nonsub_attr %>%
+    rowwise() %>%
+    mutate(
+        # Create a subset of responses that excludes non-substantive options
+        SubstantiveResponses = list(Responses[!names(Responses) %in% names(NonSubResponses)]),
+        
+        # Check if the variable has exactly two substantive responses coded as 1 and 2
+        # This is the classic binary response pattern in many surveys
+        BinaryResponses = length(SubstantiveResponses) == 2 && 
+                          all(sort(as.numeric(SubstantiveResponses)) == c(1, 2))
+    ) %>%
+    ungroup() %>%
+    # Remove the temporary column since we've captured what we need in BinaryResponses
+    select(-SubstantiveResponses)
+```
+
+## Add Question Text as a new column
+
+While the variable labels (stored in the "ShortText" column) provide brief descriptions of variables, the actual question text as presented to respondents provides important context. The full question text can help researchers understand nuances that might affect interpretation of the responses.
+
+We merge our metadata with the full question text from [Gallup Reference Tool](https://wpr.gallup.com/). This creates a more complete reference for each variable.
+
+```{r}
+# Import the question text file that contains the full text of each survey question
+questions_df <- read.csv("gallup_world_poll/data/raw/Questions.csv", stringsAsFactors = FALSE) %>% 
+    select(QTAG = QTag, QuestionText = Question.Text)  # Select and rename relevant columns
+
+# Join the question text with our metadata using QTAG as the key
+gallup_attr <- gallup_binary_attr %>%
+    left_join(questions_df, by = "QTAG") %>%
+    # Select and organize our final columns
+    select(QTAG, ShortText, QuestionText, Responses, NonSubResponses, BinaryResponses)
+```
+
+## Save the final attribute list to an RDS file and a JSON file
+
+We save our compiled metadata in two formats:
+1. An RDS file for easy loading in future R analysis
+2. A JSON file for interoperability with other programming languages and systems
+
+This makes the metadata accessible for a variety of future uses, including data dictionaries, codebooks, and automated data processing pipelines.
+
+```{r}
+# Save as RDS for use in R
+saveRDS(gallup_attr, "gallup_world_poll/data/metadata/Gallup_World_Poll_022125_Attributes.rds")
+# Save the final attribute list to a JSON file
+jsonlite::write_json(gallup_attr, "gallup_world_poll/data/metadata/Gallup_World_Poll_022125_Attributes.json", pretty = TRUE, auto_unbox = TRUE)
+```
