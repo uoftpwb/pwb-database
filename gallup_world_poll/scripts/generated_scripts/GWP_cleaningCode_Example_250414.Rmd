@@ -1,0 +1,137 @@
+---
+title: "GallupDataPreparation"
+author: "Kenith Chan"
+date: '2025-04-14'
+---
+
+## 0. Subset the Gallup raw data
+
+The version of the Gallup raw data used in this study is "The_Gallup_022125.dat". This data was released to the [UofT Map and Data Library](https://mdl.library.utoronto.ca/collections/numeric-data/gallup) on March 11, 2025.
+
+## Required Folder Structure
+
+When using this script, you will need the following folder structure in your directory:
+
+```
+Example/
+  ├── data/
+  │   ├── processed/       # Will contain the output of data processing
+  │   └── raw/             # Contains the raw Gallup data files
+  │       └── The_Gallup_022125.dat
+  └── scripts/
+      ├── GWP_cleaningCode_Example_250414.Rmd  # This script
+```
+
+```{r eval=FALSE}
+# The code in this chunk will not be run in the current Rmd
+# load "dplyr"
+library(dplyr)
+
+# Import the data file from the raw data directory
+raw_data_path <- file.path("data/raw", "The_Gallup_022125.dat")
+gallupRaw <- rio::import(raw_data_path)
+
+# Create a character vector of the names of the variables we're interested in
+varRequired <- c(
+  "WGT" # Weight,
+  "COUNTRYNEW" # Country Name,
+  "COUNTRY_ISO3" # Country ISO alpha-3 code,
+  "YEAR_CALENDAR" # Calendar Year,
+  "WP4" # Interview Date,
+  "YEAR_WAVE" # Wave Year,
+  "EMP_2010" # Employment Status,
+  "INCOME_5" # Per Capita Income Quintiles,
+  "WP1219" # Gender,
+  "WP1220" # Age,
+  "WP1223" # Marital Status,
+  "WP3117" # Education Level,
+  "WP16" # Life Today,
+  "WP18" # Life in Five Years,
+  "WP63" # Smile or Laugh,
+  "WP67" # Experienced Enjoyment Yesterday,
+  "WP69" # Experience Worry Yesterday,
+  "WP70" # Experience Sadness Yesterday,
+  "WP71" # Experience Stress Yesterday,
+  "WP74" # Experience Anger Yesterday
+)
+
+# Subset gallupRaw to include only the variables specified in varRequired
+gallupSubset <- gallupRaw %>% 
+    select(all_of(varRequired))
+
+# Save the gallupSubset data frame to a .rds file for later use
+saveRDS(gallupSubset, "GWP_RawSubset_Example_250414.rds")
+```
+
+## 1. Clean the Subset Gallup Data
+
+### Import the subset raw data
+
+Once we had the subset of the Gallup data, we imported the data and loaded the necessary packages:
+
+```{r set-up}
+# Load "dplyr"
+library(dplyr)
+
+# Read the RDS file
+gallupSubset <- readRDS("GWP_RawSubset_Example_250414.rds")
+```
+
+### Clean 'Don't Know' and 'Refused' Responses
+
+Gallup coded some responses as 'Don't Know' or 'Refused', which would not be meaningful for our analysis. We converted these responses to NA using the values found in the [WORLD POLL REFERENCE TOOL](https://wpr.gallup.com/).
+
+```{r converting-responses-to-NA}
+# Convert certain values to NA
+gallup <- gallup %>%
+  mutate(
+    WP1220 = ifelse(WP1220 %in% c(100), NA, WP1220),
+    WP1223 = ifelse(WP1223 %in% c(6, 7), NA, WP1223),
+    WP3117 = ifelse(WP3117 %in% c(4, 5), NA, WP3117),
+    WP16 = ifelse(WP16 %in% c(98, 99), NA, WP16),
+    WP18 = ifelse(WP18 %in% c(98, 99), NA, WP18),
+    WP63 = ifelse(WP63 %in% c(3, 4), NA, WP63),
+    WP67 = ifelse(WP67 %in% c(3, 4), NA, WP67),
+    WP69 = ifelse(WP69 %in% c(3, 4), NA, WP69),
+    WP70 = ifelse(WP70 %in% c(3, 4), NA, WP70),
+    WP71 = ifelse(WP71 %in% c(3, 4), NA, WP71),
+    WP74 = ifelse(WP74 %in% c(3, 4), NA, WP74)
+  )
+```
+
+### Convert Binary Response Variables
+
+For questions that have binary responses, such as yes/no questions, the responses were initially coded as 1 for 'Yes' and 2 for 'No'. However, for regression analysis, it is more common and interpretable to code binary variables as 0 and 1. Therefore, we converted the responses for binary questions from 1 and 2 to 1 and 0, respectively.
+
+```{r converting-binaryQ}
+# Convert "2" to "0"
+gallup <- gallup %>%
+  mutate(
+    WP1219 = ifelse(WP1219 == 2, 0, WP1219),
+    WP63 = ifelse(WP63 == 2, 0, WP63),
+    WP67 = ifelse(WP67 == 2, 0, WP67),
+    WP69 = ifelse(WP69 == 2, 0, WP69),
+    WP70 = ifelse(WP70 == 2, 0, WP70),
+    WP71 = ifelse(WP71 == 2, 0, WP71),
+    WP74 = ifelse(WP74 == 2, 0, WP74)
+  )
+```
+
+The object `gallup` is now a cleaned subset of the Gallup data.
+## 2. Determining Positive and Negative Affects
+
+The 'Positive Affect' ('PosAffect') was calculated by taking the average of the responses to 'WP63' (SMILE) and 'WP67' (ENJOY). The 'Negative Affect' ('NegAffect') was calculated by taking the average of the responses to 'WP69' (WORRY), 'WP70' (SAD), 'WP71' (STRESS), and 'WP74' (ANGER). A higher score in either affect indicates that the participant experienced a higher intensity of that affect the previous day.
+
+```{r calculating-affects}
+# Compute the positive and negative affects
+# Compute the mean values of the items, even if some, but not all, are NA.
+gallup$PosAffect <-
+  gallup %>% select(WP63, WP67) %>% rowMeans(na.rm = TRUE)
+gallup$NegAffect <-
+  gallup %>% select(WP69, WP70, WP71, WP74) %>% rowMeans(na.rm = TRUE)
+```
+We save the Gallup cleaned data to a .rds file for later use
+
+```{r exporting-gallup-cleaned}
+saveRDS(gallup, "GWP_cleaned_Example_250414.rds")
+```

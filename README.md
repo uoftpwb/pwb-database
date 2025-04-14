@@ -93,6 +93,8 @@ This is an ongoing project. We plan to add support for more well-being related d
 
 For detailed instructions, parameter explanations, and troubleshooting information, please refer to the documentation within the RMD file.
 
+**Note:** For an example of a generated cleaning script, see [`gallup_world_poll/scripts/generated_scripts/GWP_cleaningCode_Example_250414.Rmd`](gallup_world_poll/scripts/generated_scripts/GWP_cleaningCode_Example_250414.Rmd)
+
 #### Folder Structure
 
 The script expects the following folder structure:

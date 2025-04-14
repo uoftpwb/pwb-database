@@ -51,4 +51,6 @@ rsconnect/
 # Raw and processed data folders for any dataset
 */data/raw/
 */data/processed/
-gallup_world_poll/scripts/generated_scripts/
+gallup_world_poll/scripts/generated_scripts/*
+# But don't ignore this specific file
+!gallup_world_poll/scripts/generated_scripts/GWP_cleaningCode_Example_250414.Rmd

@@ -80,6 +80,9 @@ gallup_world_poll/
 
 4. The generated script will be saved to the output directory
 
+**Note:** For an example of a generated cleaning script, see:
+`gallup_world_poll\scripts\generated_scripts\GWP_cleaningCode_Example_250414.Rmd`
+
 ```{r load_libraries, message=FALSE, warning=FALSE}
 # Check and install required packages if needed
 required_packages <- c("dplyr", "glue", "rio")
@@ -102,7 +105,7 @@ library(rio)
 ```{r user_parameters}
 # Parameters to be specified by the user
 params <- list(
-  projectName = "TEST",  # Project name (will be used in output filenames) - REQUIRED
+  projectName = "Example",  # Project name (will be used in output filenames) - REQUIRED
   author = "Kenith Chan", # Author name for the generated script
   rawFileName = "The_Gallup_022125.dat",  # Name of raw data file
   rawReleaseDate = "March 11, 2025",  # Release date of the raw data file
@@ -335,4 +338,3 @@ tryCatch({
   stop(paste("Error saving script:", e$message))
 })
 ```
-
